@@ -2,7 +2,6 @@ import {
   type AIStreamCallbacksAndOptions,
   createCallbacksTransformer,
 } from './ai-stream';
-import { createStreamDataTransformer } from './stream-data';
 
 const utf8Decoder = new TextDecoder('utf-8');
 
@@ -68,9 +67,7 @@ export function CohereStream(
   reader: Response,
   callbacks?: AIStreamCallbacksAndOptions,
 ): ReadableStream {
-  return createParser(reader)
-    .pipeThrough(createCallbacksTransformer(callbacks))
-    .pipeThrough(
-      createStreamDataTransformer(callbacks?.experimental_streamData),
-    );
+  return createParser(reader).pipeThrough(
+    createCallbacksTransformer(callbacks),
+  );
 }

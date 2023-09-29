@@ -2,7 +2,6 @@ import {
   type AIStreamCallbacksAndOptions,
   createCallbacksTransformer,
 } from './ai-stream';
-import { createStreamDataTransformer } from './stream-data';
 
 export function LangChainStream(callbacks?: AIStreamCallbacksAndOptions) {
   const stream = new TransformStream();
@@ -30,11 +29,7 @@ export function LangChainStream(callbacks?: AIStreamCallbacksAndOptions) {
   };
 
   return {
-    stream: stream.readable
-      .pipeThrough(createCallbacksTransformer(callbacks))
-      .pipeThrough(
-        createStreamDataTransformer(callbacks?.experimental_streamData),
-      ),
+    stream: stream.readable.pipeThrough(createCallbacksTransformer(callbacks)),
     writer,
     handlers: {
       handleLLMNewToken: async (token: string) => {
