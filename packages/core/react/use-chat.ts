@@ -69,6 +69,8 @@ export type UseChatHelpers = {
   metadata?: Object;
   /** Whether the API request is in progress */
   isLoading: boolean;
+  /** Whether the API request is waiting for a response */
+  isPending: boolean;
   /** Additional data added on the server via StreamData */
   data?: JSONValue[] | undefined;
 };
@@ -226,6 +228,11 @@ export function useChat({
     null,
   );
 
+  const { data: isPending = false, mutate: mutatePending } = useSWR<boolean>(
+    [chatId, 'pending'],
+    null,
+  );
+
   const { data: streamData, mutate: mutateStreamData } = useSWR<
     JSONValue[] | undefined
   >([chatId, 'streamData'], null);
@@ -260,6 +267,7 @@ export function useChat({
     async (chatRequest: ChatRequest) => {
       try {
         mutateLoading(true);
+        mutatePending(true);
         setError(undefined);
 
         const abortController = new AbortController();
@@ -278,7 +286,12 @@ export function useChat({
               abortControllerRef,
               generateId,
               onFinish,
-              onResponse,
+              (response) => {
+                mutatePending(false);
+                if (onResponse) {
+                  onResponse(response);
+                }
+              },
               sendExtraMessageFields,
             ),
           experimental_onFunctionCall,
@@ -302,6 +315,7 @@ export function useChat({
 
         setError(err as Error);
       } finally {
+        mutatePending(false);
         mutateLoading(false);
       }
     },
@@ -438,6 +452,7 @@ export function useChat({
     handleInputChange,
     handleSubmit,
     isLoading,
+    isPending,
     data: streamData,
   };
 }
