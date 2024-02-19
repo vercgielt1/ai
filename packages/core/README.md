@@ -21,6 +21,10 @@ View the full documentation and examples on [sdk.vercel.ai/docs](https://sdk.ver
 
 With the Vercel AI SDK, you can build a ChatGPT-like app in just a few lines of code:
 
+```sh
+pnpm install ai openai
+```
+
 ```tsx
 // ./app/api/chat/route.js
 import OpenAI from 'openai';
@@ -55,11 +59,15 @@ export default function Chat() {
 
   return (
     <div>
-      {messages.map(m => (
-        <div key={m.id}>
-          {m.role}: {m.content}
-        </div>
-      ))}
+      {messages.length === 0 ? (
+        <div>Type something and press enter</div>
+      ) : (
+        messages.map(m => (
+          <div key={m.id}>
+            {m.role}: {m.content}
+          </div>
+        ))
+      )}
 
       <form onSubmit={handleSubmit}>
         <input
