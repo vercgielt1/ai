@@ -111,6 +111,10 @@ export type UseAssistantOptions = {
    * An optional callback that will be called when the assistant encounters an error.
    */
   onError?: (error: Error) => void;
+  /**
+   * An optional flag to retrieve metadata of each message
+   */
+  sendMessageMetadata?: boolean;
 };
 
 export function useAssistant({
@@ -120,6 +124,7 @@ export function useAssistant({
   headers,
   body,
   onError,
+  sendMessageMetadata
 }: UseAssistantOptions): UseAssistantHelpers {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -184,6 +189,7 @@ export function useAssistant({
                 id: value.id,
                 role: value.role,
                 content: value.content[0].text.value,
+                ...(sendMessageMetadata ? { metadata: value.metadata} : {}),
               },
             ]);
             break;
@@ -199,6 +205,7 @@ export function useAssistant({
                   id: lastMessage.id,
                   role: lastMessage.role,
                   content: lastMessage.content + value,
+                  metadata: lastMessage.metadata,
                 },
               ];
             });
