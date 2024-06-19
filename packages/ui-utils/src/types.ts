@@ -1,5 +1,6 @@
 import { ToolCall as CoreToolCall } from './duplicated/tool-call';
 import { ToolResult as CoreToolResult } from './duplicated/tool-result';
+import { AssistantThreadStatus } from './use-assistant-types';
 
 export * from './use-assistant-types';
 

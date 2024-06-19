@@ -80,6 +80,15 @@ describe('stream-parts', () => {
       expect(parseStreamPart(input)).toEqual(expectedOutput);
     });
 
+    it('should parse an assistant event line', () => {
+      const input = 'b:{"event":"value"}';
+      const expectedOutput = {
+        type: 'assistant_event',
+        value: { event: 'value' },
+      };
+      expect(parseStreamPart(input)).toEqual(expectedOutput);
+    });
+
     it('should throw an error if the input does not contain a colon separator', () => {
       const input = 'invalid stream string';
       expect(() => parseStreamPart(input)).toThrow();

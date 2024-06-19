@@ -7,27 +7,29 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, findByText, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useAssistant } from './use-assistant';
+import { firstRun } from './test-samples/use-assistant';
 
 describe('stream data stream', () => {
   const TestComponent = () => {
-    const { status, messages, append } = useAssistant({
+    const { status, messages, append, threadStatus } = useAssistant({
       api: '/api/assistant',
     });
 
     return (
       <div>
         <div data-testid="status">{status}</div>
-        {messages.map((m, idx) => (
-          <div data-testid={`message-${idx}`} key={m.id}>
-            {m.role === 'user' ? 'User: ' : 'AI: '}
-            {m.content}
+        <div data-testid="thread-status">{threadStatus}</div>
+        {messages.map((message, idx) => (
+          <div data-testid={`message-${idx}`} key={message.id}>
+            {message.role === 'user' ? 'User: ' : 'AI: '}
+            {message.content}
           </div>
         ))}
 
         <button
           data-testid="do-append"
           onClick={() => {
-            append({ role: 'user', content: 'hi' });
+            append({ role: 'user', content: 'hey!' });
           }}
         />
       </div>
@@ -43,48 +45,33 @@ describe('stream data stream', () => {
     cleanup();
   });
 
-  it('should show streamed response', async () => {
+  it('should show final response', async () => {
     const { requestBody } = mockFetchDataStream({
       url: 'https://example.com/api/assistant',
-      chunks: [
-        formatStreamPart('assistant_control_data', {
-          threadId: 't0',
-          messageId: 'm0',
-        }),
-        formatStreamPart('assistant_message', {
-          id: 'm0',
-          role: 'assistant',
-          content: [{ type: 'text', text: { value: '' } }],
-        }),
-        // text parts:
-        '0:"Hello"\n',
-        '0:","\n',
-        '0:" world"\n',
-        '0:"."\n',
-      ],
+      chunks: firstRun.map(part => formatStreamPart('assistant_event', part)),
     });
 
     await userEvent.click(screen.getByTestId('do-append'));
 
     await screen.findByTestId('message-0');
-    expect(screen.getByTestId('message-0')).toHaveTextContent('User: hi');
+    expect(screen.getByTestId('message-0')).toHaveTextContent('User: hey!');
 
     await screen.findByTestId('message-1');
     expect(screen.getByTestId('message-1')).toHaveTextContent(
-      'AI: Hello, world.',
+      'AI: Hello! How can I assist you today?',
     );
 
     // check that correct information was sent to the server:
     expect(await requestBody).toStrictEqual(
       JSON.stringify({
         threadId: null,
-        message: 'hi',
+        message: 'hey!',
       }),
     );
   });
 
-  describe('loading state', () => {
-    it('should show loading state', async () => {
+  describe('should show thread status', () => {
+    it('should show final event', async () => {
       let finishGeneration: ((value?: unknown) => void) | undefined;
       const finishGenerationPromise = new Promise(resolve => {
         finishGeneration = resolve;
@@ -95,26 +82,25 @@ describe('stream data stream', () => {
         chunkGenerator: (async function* generate() {
           const encoder = new TextEncoder();
 
-          yield encoder.encode(
-            formatStreamPart('assistant_control_data', {
-              threadId: 't0',
-              messageId: 'm1',
-            }),
-          );
-
-          yield encoder.encode(
-            formatStreamPart('assistant_message', {
-              id: 'm1',
-              role: 'assistant',
-              content: [{ type: 'text', text: { value: '' } }],
-            }),
-          );
-
-          yield encoder.encode('0:"Hello"\n');
+          for (const streamPart of firstRun) {
+            yield encoder.encode(
+              formatStreamPart('assistant_event', streamPart),
+            );
+          }
 
           await finishGenerationPromise;
         })(),
       });
+
+      await screen.findByTestId('thread-status');
+      expect(screen.getByTestId('thread-status')).toHaveTextContent(
+        'thread.idle',
+      );
+
+      await screen.findByTestId('status');
+      expect(screen.getByTestId('status')).toHaveTextContent(
+        'awaiting_message',
+      );
 
       await userEvent.click(screen.getByTestId('do-append'));
 
@@ -122,6 +108,14 @@ describe('stream data stream', () => {
       expect(screen.getByTestId('status')).toHaveTextContent('in_progress');
 
       finishGeneration?.();
+
+      await findByText(
+        await screen.findByTestId('thread-status'),
+        'thread.run.completed',
+      );
+      expect(screen.getByTestId('thread-status')).toHaveTextContent(
+        'thread.run.completed',
+      );
 
       await findByText(await screen.findByTestId('status'), 'awaiting_message');
       expect(screen.getByTestId('status')).toHaveTextContent(

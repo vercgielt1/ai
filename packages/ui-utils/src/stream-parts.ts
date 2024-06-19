@@ -2,6 +2,7 @@ import { ToolCall as CoreToolCall } from './duplicated/tool-call';
 import { ToolResult as CoreToolResult } from './duplicated/tool-result';
 import {
   AssistantMessage,
+  AssistantThreadStatus,
   DataMessage,
   FunctionCall,
   JSONValue,
@@ -303,6 +304,33 @@ const toolResultStreamPart: StreamPart<
   },
 };
 
+const assistantStreamPart: StreamPart<
+  'b',
+  'assistant_event',
+  {
+    event: AssistantThreadStatus;
+    data?: unknown;
+  }
+> = {
+  code: 'b',
+  name: 'assistant_event',
+  parse: (value: JSONValue) => {
+    if (value == null || typeof value !== 'object' || !('event' in value)) {
+      throw new Error(
+        '"assistant_event" parts expect an object with "event" and an optional "data" property.',
+      );
+    }
+
+    return {
+      type: 'assistant_event',
+      value: value as unknown as {
+        event: AssistantThreadStatus;
+        data?: unknown;
+      },
+    };
+  },
+};
+
 const streamParts = [
   textStreamPart,
   functionCallStreamPart,
@@ -315,6 +343,7 @@ const streamParts = [
   messageAnnotationsStreamPart,
   toolCallStreamPart,
   toolResultStreamPart,
+  assistantStreamPart,
 ] as const;
 
 // union type of all stream parts
@@ -329,7 +358,8 @@ type StreamParts =
   | typeof toolCallsStreamPart
   | typeof messageAnnotationsStreamPart
   | typeof toolCallStreamPart
-  | typeof toolResultStreamPart;
+  | typeof toolResultStreamPart
+  | typeof assistantStreamPart;
 
 /**
  * Maps the type of a stream part to its value type.
@@ -349,7 +379,8 @@ export type StreamPartType =
   | ReturnType<typeof toolCallsStreamPart.parse>
   | ReturnType<typeof messageAnnotationsStreamPart.parse>
   | ReturnType<typeof toolCallStreamPart.parse>
-  | ReturnType<typeof toolResultStreamPart.parse>;
+  | ReturnType<typeof toolResultStreamPart.parse>
+  | ReturnType<typeof assistantStreamPart.parse>;
 
 export const streamPartsByCode = {
   [textStreamPart.code]: textStreamPart,
@@ -363,6 +394,7 @@ export const streamPartsByCode = {
   [messageAnnotationsStreamPart.code]: messageAnnotationsStreamPart,
   [toolCallStreamPart.code]: toolCallStreamPart,
   [toolResultStreamPart.code]: toolResultStreamPart,
+  [assistantStreamPart.code]: assistantStreamPart,
 } as const;
 
 /**
@@ -399,6 +431,7 @@ export const StreamStringPrefixes = {
   [messageAnnotationsStreamPart.name]: messageAnnotationsStreamPart.code,
   [toolCallStreamPart.name]: toolCallStreamPart.code,
   [toolResultStreamPart.name]: toolResultStreamPart.code,
+  [assistantStreamPart.name]: assistantStreamPart.code,
 } as const;
 
 export const validCodes = streamParts.map(part => part.code);

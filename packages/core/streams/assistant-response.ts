@@ -1,10 +1,21 @@
 import {
   AssistantMessage,
+  AssistantThreadStatus,
   DataMessage,
   formatStreamPart,
 } from '@ai-sdk/ui-utils';
 import { type AssistantStream } from 'openai/lib/AssistantStream';
-import { Run } from 'openai/resources/beta/threads/runs/runs';
+import { ErrorObject } from 'openai/resources';
+import { Run, RunStatus } from 'openai/resources/beta/threads/runs/runs';
+import {
+  MessageDeltaEvent,
+  Message as ThreadMessage,
+} from 'openai/resources/beta/threads/messages';
+import {
+  RunStep,
+  RunStepDeltaEvent,
+} from 'openai/resources/beta/threads/runs/steps';
+import { Thread } from 'openai/resources/beta/threads/threads';
 
 /**
 You can pass the thread and the latest message into the `AssistantResponse`. This establishes the context for the response.
@@ -52,6 +63,20 @@ Forwards the assistant response stream to the client. Returns the `Run` object a
 }) => Promise<void>;
 
 /**
+ * The `StreamDataPart` represents the possible types of data parts present in an assistant stream event.
+ */
+type StreamDataPart =
+  | null
+  | {
+      id: string;
+      threadId: string;
+      requiredAction: Run.RequiredAction;
+      status: RunStatus;
+    }
+  | { id: string }
+  | { id: string; delta: { content: [{ text: { value: string } }] } };
+
+/**
 The `AssistantResponse` allows you to send a stream of assistant update to `useAssistant`.
 It is designed to facilitate streaming assistant responses to the `useAssistant` hook.
 It receives an assistant thread and a current message, and can send messages and data messages to the client.
@@ -85,55 +110,73 @@ export function AssistantResponse(
       const forwardStream = async (stream: AssistantStream) => {
         let result: Run | undefined = undefined;
 
-        for await (const value of stream) {
-          switch (value.event) {
-            case 'thread.message.created': {
-              controller.enqueue(
-                textEncoder.encode(
-                  formatStreamPart('assistant_message', {
-                    id: value.data.id,
-                    role: 'assistant',
-                    content: [{ type: 'text', text: { value: '' } }],
-                  }),
-                ),
-              );
-              break;
+        function sanitizeData(
+          data:
+            | Run
+            | RunStep
+            | RunStepDeltaEvent
+            | Thread
+            | ThreadMessage
+            | MessageDeltaEvent
+            | ErrorObject,
+        ) {
+          if (!('object' in data)) {
+            return null;
+          }
+
+          const { object } = data;
+
+          switch (object) {
+            case 'thread.run': {
+              result = data as Run;
+
+              return {
+                id: data.id,
+                threadId: data.thread_id,
+                requiredAction: data.required_action,
+                status: data.status,
+              };
+            }
+
+            case 'thread.message': {
+              return {
+                id: data.id,
+              };
             }
 
             case 'thread.message.delta': {
-              const content = value.data.delta.content?.[0];
-
-              if (content?.type === 'text' && content.text?.value != null) {
-                controller.enqueue(
-                  textEncoder.encode(
-                    formatStreamPart('text', content.text.value),
-                  ),
-                );
-              }
-
-              break;
+              return {
+                id: data.id,
+                delta: data.delta,
+              };
             }
 
-            case 'thread.run.completed':
-            case 'thread.run.requires_action': {
-              result = value.data;
-              break;
-            }
+            default:
+              return null;
           }
+        }
+
+        for await (const { event, data } of stream) {
+          let streamPart: {
+            event: AssistantThreadStatus;
+            data?: StreamDataPart;
+          } = {
+            event,
+          };
+
+          const streamDataPart = sanitizeData(data);
+
+          if (streamDataPart) {
+            streamPart['data'] = streamDataPart;
+          }
+
+          controller.enqueue(
+            textEncoder.encode(formatStreamPart('assistant_event', streamPart)),
+          );
         }
 
         return result;
       };
-
-      // send the threadId and messageId as the first message:
-      controller.enqueue(
-        textEncoder.encode(
-          formatStreamPart('assistant_control_data', {
-            threadId,
-            messageId,
-          }),
-        ),
-      );
 
       try {
         await process({

@@ -8,6 +8,7 @@ import {
   UseAssistantOptions,
   generateId,
   readDataStream,
+  AssistantThreadStatus,
 } from '@ai-sdk/ui-utils';
 import { useCallback, useRef, useState } from 'react';
 
@@ -46,7 +47,7 @@ export type UseAssistantHelpers = {
   ) => Promise<void>;
 
   /**
-Abort the current request immediately, keep the generated tokens if any.
+   * Abort the current request immediately, keep the generated tokens if any.
    */
   stop: () => void;
 
@@ -80,10 +81,19 @@ Abort the current request immediately, keep the generated tokens if any.
   status: AssistantStatus;
 
   /**
+   * The current status of the thread. This can be used to get information about the most recent run.
+   */
+  threadStatus: AssistantThreadStatus;
+
+  /**
    * The error thrown during the assistant message processing, if any.
    */
   error: undefined | unknown;
 };
+
+/**
+ * The `StreamDataPart` represents the possible types of data parts present in an assistant stream event.
+ */
 
 export function useAssistant({
   api,
@@ -97,6 +107,8 @@ export function useAssistant({
   const [input, setInput] = useState('');
   const [threadId, setThreadId] = useState<string | undefined>(undefined);
   const [status, setStatus] = useState<AssistantStatus>('awaiting_message');
+  const [threadStatus, setThreadStatus] =
+    useState<AssistantThreadStatus>('thread.idle');
   const [error, setError] = useState<undefined | Error>(undefined);
 
   const handleInputChange = (
@@ -124,6 +136,7 @@ export function useAssistant({
     },
   ) => {
     setStatus('in_progress');
+    setThreadStatus('thread.message.created');
 
     setMessages(messages => [
       ...messages,
@@ -160,68 +173,60 @@ export function useAssistant({
         throw new Error('The response body is empty.');
       }
 
-      for await (const { type, value } of readDataStream(
-        result.body.getReader(),
-      )) {
-        switch (type) {
-          case 'assistant_message': {
-            setMessages(messages => [
-              ...messages,
-              {
-                id: value.id,
-                role: value.role,
-                content: value.content[0].text.value,
-              },
-            ]);
-            break;
-          }
+      for await (const { value } of readDataStream(result.body.getReader())) {
+        const { event, data } = value as {
+          event: AssistantThreadStatus;
+          data?: {
+            threadId: string;
+            id: string;
+            delta: { content: [{ text: { value: string } }] };
+          };
+        };
 
-          case 'text': {
-            // text delta - add to last message:
-            setMessages(messages => {
-              const lastMessage = messages[messages.length - 1];
-              return [
-                ...messages.slice(0, messages.length - 1),
+        setThreadStatus(event);
+
+        if (data) {
+          switch (event) {
+            case 'thread.run.created': {
+              setThreadId(data.threadId);
+              break;
+            }
+
+            case 'thread.message.created': {
+              setMessages(messages => [
+                ...messages,
                 {
-                  id: lastMessage.id,
-                  role: lastMessage.role,
-                  content: lastMessage.content + value,
+                  id: data.id,
+                  role: 'assistant',
+                  content: '',
                 },
-              ];
-            });
+              ]);
 
-            break;
-          }
+              break;
+            }
 
-          case 'data_message': {
-            setMessages(messages => [
-              ...messages,
-              {
-                id: value.id ?? generateId(),
-                role: 'data',
-                content: '',
-                data: value.data,
-              },
-            ]);
-            break;
-          }
+            case 'thread.message.delta': {
+              setMessages(messages => {
+                const { delta } = data;
+                const lastMessage = messages[messages.length - 1];
 
-          case 'assistant_control_data': {
-            setThreadId(value.threadId);
+                return [
+                  ...messages.slice(0, messages.length - 1),
+                  {
+                    id: data.id,
+                    role: 'assistant',
+                    content: lastMessage.content + delta.content[0].text.value,
+                  },
+                ];
+              });
 
-            // set id of last message:
-            setMessages(messages => {
-              const lastMessage = messages[messages.length - 1];
-              lastMessage.id = value.messageId;
-              return [...messages.slice(0, messages.length - 1), lastMessage];
-            });
+              break;
+            }
 
-            break;
-          }
-
-          case 'error': {
-            setError(new Error(value));
-            break;
+            case 'error': {
+              setError(new Error('Internal server error.'));
+              break;
+            }
           }
         }
       }
@@ -268,6 +273,7 @@ export function useAssistant({
     handleInputChange,
     submitMessage,
     status,
+    threadStatus,
     error,
     stop,
   };
