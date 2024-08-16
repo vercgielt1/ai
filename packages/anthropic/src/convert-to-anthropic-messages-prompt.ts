@@ -1,18 +1,19 @@
 import {
-  LanguageModelV1Message,
-  LanguageModelV1Prompt,
+  LanguageModelV2Message,
+  LanguageModelV2Prompt,
   UnsupportedFunctionalityError,
 } from '@ai-sdk/provider';
 import { convertUint8ArrayToBase64 } from '@ai-sdk/provider-utils';
 import {
   AnthropicAssistantMessage,
+  AnthropicCacheControl,
   AnthropicMessage,
   AnthropicMessagesPrompt,
   AnthropicUserMessage,
 } from './anthropic-messages-prompt';
 
 export function convertToAnthropicMessagesPrompt(
-  prompt: LanguageModelV1Prompt,
+  prompt: LanguageModelV2Prompt,
 ): AnthropicMessagesPrompt {
   const blocks = groupIntoBlocks(prompt);
 
@@ -40,54 +41,68 @@ export function convertToAnthropicMessagesPrompt(
         // combines all user and tool messages in this block into a single message:
         const anthropicContent: AnthropicUserMessage['content'] = [];
 
-        for (const { role, content } of block.messages) {
-          switch (role) {
-            case 'user': {
-              for (const part of content) {
-                switch (part.type) {
-                  case 'text': {
-                    anthropicContent.push({ type: 'text', text: part.text });
-                    break;
-                  }
-                  case 'image': {
-                    if (part.image instanceof URL) {
-                      // The AI SDK automatically downloads images for user image parts with URLs
-                      throw new UnsupportedFunctionalityError({
-                        functionality: 'Image URLs in user messages',
-                      });
-                    }
+        for (const { content } of block.messages) {
+          for (const part of content) {
+            const { type, providerMetadata } = part;
 
-                    anthropicContent.push({
-                      type: 'image',
-                      source: {
-                        type: 'base64',
-                        media_type: part.mimeType ?? 'image/jpeg',
-                        data: convertUint8ArrayToBase64(part.image),
-                      },
-                    });
+            // TODO consider type validation
+            const cacheControl =
+              providerMetadata?.anthropicCacheControl as AnthropicCacheControl;
 
-                    break;
-                  }
-                }
+            switch (type) {
+              case 'text': {
+                anthropicContent.push({
+                  type: 'text',
+                  text: part.text,
+                  cache_control: cacheControl,
+                });
+                break;
               }
 
-              break;
-            }
-            case 'tool': {
-              for (const part of content) {
+              case 'data': {
+                if (part.kind !== 'image') {
+                  throw new UnsupportedFunctionalityError({
+                    functionality: 'data parts that are not images',
+                  });
+                }
+
+                if (part.data instanceof URL) {
+                  // Note: The AI SDK automatically downloads images for user image parts with URLs
+                  throw new UnsupportedFunctionalityError({
+                    functionality: 'image URLs',
+                  });
+                }
+
+                anthropicContent.push({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: part.mimeType ?? 'image/jpeg',
+                    data: convertUint8ArrayToBase64(part.data),
+                  },
+                  catch_control: cacheControl,
+                });
+
+                break;
+              }
+              case 'tool-result': {
                 anthropicContent.push({
                   type: 'tool_result',
                   tool_use_id: part.toolCallId,
                   content: JSON.stringify(part.result),
                   is_error: part.isError,
+                  catch_control: cacheControl,
                 });
+
+                break;
               }
 
-              break;
-            }
-            default: {
-              const _exhaustiveCheck: never = role;
-              throw new Error(`Unsupported role: ${_exhaustiveCheck}`);
+              default: {
+                const _exhaustiveCheck: never = type;
+                throw new UnsupportedFunctionalityError({
+                  functionality: `part type: ${_exhaustiveCheck}`,
+                });
+              }
             }
           }
         }
@@ -115,6 +130,8 @@ export function convertToAnthropicMessagesPrompt(
                     i === blocks.length - 1 && j === block.messages.length - 1
                       ? part.text.trim()
                       : part.text,
+
+                  cache_control: undefined,
                 });
                 break;
               }
@@ -152,25 +169,26 @@ export function convertToAnthropicMessagesPrompt(
 
 type SystemBlock = {
   type: 'system';
-  messages: Array<LanguageModelV1Message & { role: 'system' }>;
+  messages: Array<LanguageModelV2Message & { role: 'system' }>;
 };
 type AssistantBlock = {
   type: 'assistant';
-  messages: Array<LanguageModelV1Message & { role: 'assistant' }>;
+  messages: Array<LanguageModelV2Message & { role: 'assistant' }>;
 };
 type UserBlock = {
   type: 'user';
-  messages: Array<LanguageModelV1Message & { role: 'user' | 'tool' }>;
+  messages: Array<LanguageModelV2Message & { role: 'user' }>;
 };
 
 function groupIntoBlocks(
-  prompt: LanguageModelV1Prompt,
+  prompt: LanguageModelV2Prompt,
 ): Array<SystemBlock | AssistantBlock | UserBlock> {
   const blocks: Array<SystemBlock | AssistantBlock | UserBlock> = [];
   let currentBlock: SystemBlock | AssistantBlock | UserBlock | undefined =
     undefined;
 
-  for (const { role, content } of prompt) {
+  for (const message of prompt) {
+    const { role } = message;
     switch (role) {
       case 'system': {
         if (currentBlock?.type !== 'system') {
@@ -178,7 +196,7 @@ function groupIntoBlocks(
           blocks.push(currentBlock);
         }
 
-        currentBlock.messages.push({ role, content });
+        currentBlock.messages.push(message);
         break;
       }
       case 'assistant': {
@@ -187,7 +205,7 @@ function groupIntoBlocks(
           blocks.push(currentBlock);
         }
 
-        currentBlock.messages.push({ role, content });
+        currentBlock.messages.push(message);
         break;
       }
       case 'user': {
@@ -196,21 +214,14 @@ function groupIntoBlocks(
           blocks.push(currentBlock);
         }
 
-        currentBlock.messages.push({ role, content });
-        break;
-      }
-      case 'tool': {
-        if (currentBlock?.type !== 'user') {
-          currentBlock = { type: 'user', messages: [] };
-          blocks.push(currentBlock);
-        }
-
-        currentBlock.messages.push({ role, content });
+        currentBlock.messages.push(message);
         break;
       }
       default: {
         const _exhaustiveCheck: never = role;
-        throw new Error(`Unsupported role: ${_exhaustiveCheck}`);
+        throw new UnsupportedFunctionalityError({
+          functionality: `role: ${_exhaustiveCheck}`,
+        });
       }
     }
   }
