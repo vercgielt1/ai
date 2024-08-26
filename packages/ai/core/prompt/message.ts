@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ProviderMetadata } from '../types';
 import { providerMetadataSchema } from '../types/provider-metadata';
 import {
+  FilePart,
   ImagePart,
   imagePartSchema,
   TextPart,
@@ -72,9 +73,9 @@ export const coreUserMessageSchema: z.ZodType<CoreUserMessage> = z.object({
 export type ExperimentalUserMessage = CoreUserMessage;
 
 /**
-Content of a user message. It can be a string or an array of text and image parts.
+Content of a user message. It can be a string or an array of text and image or file parts.
  */
-export type UserContent = string | Array<TextPart | ImagePart>;
+export type UserContent = string | Array<TextPart | ImagePart | FilePart>;
 
 /**
 An assistant message. It can contain text, tool calls, or a combination of text and tool calls.

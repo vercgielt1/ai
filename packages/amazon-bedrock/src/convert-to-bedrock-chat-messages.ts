@@ -3,7 +3,9 @@ import {
   UnsupportedFunctionalityError,
 } from '@ai-sdk/provider';
 import { ContentBlock, ImageFormat } from '@aws-sdk/client-bedrock-runtime';
+import * as crypto from 'crypto';
 import { BedrockMessages, BedrockMessagesPrompt } from './bedrock-chat-prompt';
+import { mapBedrockDocumentFormat } from './map-bedrock-document-format';
 
 export function convertToBedrockChatMessages(
   prompt: LanguageModelV1Prompt,
@@ -48,6 +50,31 @@ export function convertToBedrockChatMessages(
                   format: part.mimeType?.split('/')?.[1] as ImageFormat,
                   source: {
                     bytes: part.image ?? (part.image as Uint8Array),
+                  },
+                },
+              });
+              break;
+            }
+
+            case 'file': {
+              if (part.file instanceof URL) {
+                // The AI SDK automatically downloads files for user file parts with URLs
+                throw new UnsupportedFunctionalityError({
+                  functionality: 'File URLs in user messages',
+                });
+              }
+
+              // Hash the file to use as the name
+              const hash = crypto.createHash('sha-1');
+              hash.update(part.file);
+              const hashKey = hash.digest('hex');
+
+              bedrockMessageContent.push({
+                document: {
+                  format: mapBedrockDocumentFormat(part.mimeType),
+                  name: hashKey,
+                  source: {
+                    bytes: part.file,
                   },
                 },
               });

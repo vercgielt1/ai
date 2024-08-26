@@ -154,6 +154,7 @@ describe('convertToLanguageModelMessage', () => {
             ],
           },
           null,
+          null,
         );
 
         expect(result).toEqual({
@@ -178,6 +179,7 @@ describe('convertToLanguageModelMessage', () => {
               },
             ],
           },
+          null,
           null,
         );
 
@@ -214,6 +216,7 @@ describe('convertToLanguageModelMessage', () => {
               },
             ],
           },
+          null,
           null,
         );
 
