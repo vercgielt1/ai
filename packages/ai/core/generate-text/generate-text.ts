@@ -27,6 +27,8 @@ import { GenerateTextResult } from './generate-text-result';
 import { toResponseMessages } from './to-response-messages';
 import { ToToolCallArray, parseToolCall } from './tool-call';
 import { ToToolResultArray } from './tool-result';
+import { AISDKError } from '@ai-sdk/provider';
+import { ProviderError } from '../../errors/provider-error';
 
 const originalGenerateId = createIdGenerator({ prefix: 'aitxt-', length: 24 });
 
@@ -235,14 +237,27 @@ By default, it's set to 0, which will disable the feature.
             }),
             tracer,
             fn: async span => {
-              const result = await model.doGenerate({
-                mode,
-                ...callSettings,
-                inputFormat: currentInputFormat,
-                prompt: promptMessages,
-                abortSignal,
-                headers,
-              });
+              let result: Awaited<ReturnType<LanguageModel['doGenerate']>>;
+
+              try {
+                result = await model.doGenerate({
+                  mode,
+                  ...callSettings,
+                  inputFormat: currentInputFormat,
+                  prompt: promptMessages,
+                  abortSignal,
+                  headers,
+                });
+              } catch (error) {
+                if (error instanceof AISDKError) {
+                  throw new ProviderError({
+                    provider: model.provider,
+                    message: error.message,
+                    cause: error,
+                  });
+                }
+                throw error;
+              }
 
               // Fill in default values:
               const responseData = {
