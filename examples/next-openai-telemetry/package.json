@@ -13,7 +13,7 @@
     "@ai-sdk/react": "latest",
     "@opentelemetry/api-logs": "0.52.1",
     "@opentelemetry/sdk-logs": "0.52.1",
-    "@opentelemetry/instrumentation": "0.52.1",
+    "@opentelemetry/instrumentation": "0.53.0",
     "@vercel/otel": "1.9.1",
     "ai": "latest",
     "next": "latest",
